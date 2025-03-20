@@ -10,7 +10,7 @@ from layers.Sampling import Sampling
 from models.VAE import VAE
 
 
-def main(latent_dimensions: int = 2):
+def main():
     """
     Here we make a variational Autoencoder.
 
@@ -35,20 +35,20 @@ def main(latent_dimensions: int = 2):
     The use of these models is the decoder, where we can co from the embedding space to the input space. 
     
     """
-    encoder, decoder, autoencoder = get_models(latent_dimensions)
+    latent_dimensions = 200
+    channels = 3
+
+    encoder, decoder, autoencoder = get_models(latent_dimensions, channels)
 
     x_train, y_train, x_test, y_test = load_data()
 
     graphs.autoencoded_images(autoencoder, x_test)
-    # this is very blury and clearly mixes images. This is becasue we are moving to distributions not points, and
-    # forcing the means to be near the origin. As such the latent feature space isnt large enogh for independent
-    # features ot carve out their own space.
     graphs.latent_space(encoder, x_test, y_test)
     graphs.generated_image(decoder, np.array([1.0, 0.0]))
     graphs.generated_image(decoder, np.array([0, -8]))
 
 
-def get_models(latent_dimensions) -> tuple[Model, Model, Model]:
+def get_models(latent_dimensions: int, channels: int) -> tuple[Model, Model, Model]:
     encoder_path = "saved_models/var_encoder.keras"
     decoder_path = "saved_models/var_decoder.keras"
     autoencoder_path = "saved_models/var_autoencoder.keras"
@@ -60,7 +60,7 @@ def get_models(latent_dimensions) -> tuple[Model, Model, Model]:
         autoencoder = models.load_model(autoencoder_path)
     else:
         logging.debug("Making models")
-        encoder, decoder, autoencoder = make_model(latent_dimensions)
+        encoder, decoder, autoencoder = make_model(latent_dimensions, channels)
         encoder.save(encoder_path)
         decoder.save(decoder_path)
         autoencoder.save(autoencoder_path)
@@ -68,17 +68,17 @@ def get_models(latent_dimensions) -> tuple[Model, Model, Model]:
     return encoder, decoder, autoencoder
 
 
-def make_model(latent_dimensions) -> tuple[Model, Model, Model]:
+def make_model(latent_dimensions: int, channels: int) -> tuple[Model, Model, Model]:
     x_train, y_train, x_test, y_test = load_data()
 
-    encoder, shape = make_encoder(latent_dimensions)
+    encoder, shape = make_encoder(latent_dimensions, channels)
     encoder.summary()
 
-    decoder = make_decoder(latent_dimensions, shape)
+    decoder = make_decoder(latent_dimensions, channels, shape)
     decoder.summary()
 
     # the autoencoder stacks the two models
-    vae = VAE(encoder, decoder)
+    vae = VAE(encoder, decoder, beta=2_000)
     vae.compile()
     vae.fit(x_train, epochs=5, batch_size=100)
     vae.summary()
@@ -100,15 +100,16 @@ def load_data() -> tuple[np.array, np.array, np.array, np.array]:
     return x_train, y_train, x_test, y_test
 
 
-def make_encoder(latent_dimensions: int) -> tuple[Model, np.array]:
+def make_encoder(latent_dimensions: int, channels: int) -> tuple[Model, np.array]:
     """Our encoder uses cov layers as the input is an image. We output to """
     encoder_input = layers.Input(
-        shape=(32, 32, 1),  # shape of the images we are using
+        shape=(32, 32, channels),  # shape of the images we are using
         name="encoder_input"
     )
     # find geometric features
-    x = layers.Conv2D(32, (3, 3), strides=2, activation='relu', padding="same")(encoder_input)
-    x = layers.Conv2D(64, (3, 3), strides=2, activation='relu', padding="same")(x)
+    x = layers.Conv2D(128, (3, 3), strides=2, activation='relu', padding="same")(encoder_input)
+    x = layers.Conv2D(128, (3, 3), strides=2, activation='relu', padding="same")(x)
+    x = layers.Conv2D(128, (3, 3), strides=2, activation='relu', padding="same")(x)
     x = layers.Conv2D(128, (3, 3), strides=2, activation='relu', padding="same")(x)
 
     # we need this for the decoder to know how many nodes we go back to from the latent space
@@ -128,7 +129,7 @@ def make_encoder(latent_dimensions: int) -> tuple[Model, np.array]:
     return model, shape
 
 
-def make_decoder(latent_dimensions: int, shape: tuple[int, int, int]) -> Model:
+def make_decoder(latent_dimensions: int, channels: int, shape: tuple[int, int, int]) -> Model:
     decoder_input = layers.Input(
         shape=(latent_dimensions,),
         name="decoder_input"
@@ -140,13 +141,15 @@ def make_decoder(latent_dimensions: int, shape: tuple[int, int, int]) -> Model:
 
     # invert layers from encoder
     x = layers.Conv2DTranspose(128, (3, 3), strides=2, activation='relu', padding="same")(x)
-    x = layers.Conv2DTranspose(64, (3, 3), strides=2, activation='relu', padding="same")(x)
-    x = layers.Conv2DTranspose(32, (3, 3), strides=2, activation='relu', padding="same")(x)
+    x = layers.Conv2DTranspose(128, (3, 3), strides=2, activation='relu', padding="same")(x)
+    x = layers.Conv2DTranspose(128, (3, 3), strides=2, activation='relu', padding="same")(x)
+    x = layers.Conv2DTranspose(128, (3, 3), strides=2, activation='relu', padding="same")(x)
+    x = layers.Conv2DTranspose(128, (3, 3), strides=2, activation='relu', padding="same")(x)
     # at this point is a 32 x 32 array
 
     # remove artifacts, Conv2DTranspose layers are known for producing artifacts like checkerboard patterns, especially when upsampling.
 
-    decoder_output = layers.Conv2D(1, (3, 3), strides=1,
+    decoder_output = layers.Conv2D(channels, (3, 3), strides=1,
                                    activation='sigmoid',  # normalises the output values to [0,1]
                                    padding="same", name="decorator_output")(x)
 

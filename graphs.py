@@ -7,12 +7,12 @@ def autoencoded_images(autoencoder: Model, x_test: np.array):
     n_images = 5
 
     images = x_test[:n_images]
-    x_pred = autoencoder.predict(images)
+    x_mean, x_log_var, reconstructed = autoencoder.predict(images)
 
     fig, axes = plt.subplots(2, n_images, figsize=(n_images * 2, 2))  # Create n subplots in a row
     for i in range(n_images):
         axes[0][i].imshow(images[i], cmap='gray')
-        axes[1][i].imshow(x_pred[i], cmap='gray')
+        axes[1][i].imshow(reconstructed[i], cmap='gray')
     for ax in axes[0]:
         ax.axis('off')  # Turn off axes for better visualization
     for ax in axes[1]:
@@ -27,9 +27,9 @@ def latent_space(encoder: Model, x_test: np.array, labels: np.array):
     n = 5000
 
     images = x_test[:n]
-    x_pred = encoder.predict(images)
+    x_mean, x_log_var, x_drawn = encoder.predict(images)
 
-    plt.scatter(x_pred[:, 0], x_pred[:, 1], s=20, c=labels[:n], alpha=0.7)
+    plt.scatter(x_mean[:, 0], x_mean[:, 1], s=20, c=labels[:n], alpha=0.7)
     plt.show()
 
 
