@@ -10,7 +10,17 @@ import graphs
 
 def main(latent_dimensions: int = 2):
     """
-    Here we make a basic Autoencoder. 
+    Here we make a variational Autoencoder.
+
+    The difference between this and the autoencoder is that we map images to a point in the autoencoder, but here we
+    map images to a random variable, expressed as value drawn from a normal distribution. To model this, rather than
+    output being a point in the latent space, we map to a distribution defined on the latent space, with the final
+    layer drawing from that distribution.
+
+    The benefit of this is that the model can learn not to associate an image with a point, but with nearby neighboring
+    points through the distribution. In so doing the latent space becomes continuous with respect to the decoded images
+    in the sense that latent vectors corresponding to fictional images near training vectors will apear to look like
+    those training vectors.
 
     An auto encoder consists of both a model that is responsible for encoding, and a model that is responsible for decoding.
 
@@ -50,6 +60,7 @@ def get_models(latent_dimensions) -> tuple[Model, Model, Model]:
         autoencoder.save(autoencoder_path)
 
     return encoder, decoder, autoencoder
+
 
 def make_model(latent_dimensions) -> tuple[Model, Model, Model]:
     x_train, y_train, x_test, y_test = load_data()
