@@ -45,7 +45,7 @@ def main():
 
 class VAEContainer:
     def __init__(self,
-                 latent_dimensions: int = 2,
+                 latent_dimensions: int = 200,
                  image_size: int = 64,
                  batch_size: int = 128,
                  channels: int = 3,
