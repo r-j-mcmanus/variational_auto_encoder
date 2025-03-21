@@ -40,143 +40,117 @@ def main():
     The use of these models is the decoder, where we can co from the embedding space to the input space.
 
     """
-    latent_dimensions = 2
-    image_size = 64
-    batch_size = 128
-    channels = 3
-    epochs = 5
-
-    train_data_set = get_datasets(image_size, batch_size)
-
-    encoder, decoder, autoencoder = get_models(train_data_set, latent_dimensions, image_size, channels, epochs, batch_size)
-
-    # graphs.autoencoded_images(autoencoder, x_test)
-    # graphs.latent_space(encoder, x_test, y_test)
-    # graphs.generated_image(decoder, np.array([1.0, 0.0]))
-    # graphs.generated_image(decoder, np.array([0, -8]))
+    vae_container = VAEContainer()
 
 
-def get_models(train_data_set: tf.data.Dataset, latent_dimensions: int, image_size: int, channels: int, epochs: int, batch_size: int) -> tuple[Model, Model, Model]:
-    encoder_path = "saved_models/var_encoder_larger.keras"
-    decoder_path = "saved_models/var_decoder_larger.keras"
-    autoencoder_path = "saved_models/var_autoencoder_larger.keras"
+class VAEContainer:
+    def __init__(self,
+                 latent_dimensions: int = 2,
+                 image_size: int = 64,
+                 batch_size: int = 128,
+                 channels: int = 3,
+                 epochs: int = 5):
+        self.latent_dimensions = latent_dimensions
+        self.image_size = image_size
+        self.batch_size = batch_size
+        self.channels = channels
+        self.epochs = epochs
 
-    if os.path.exists(encoder_path) and os.path.exists(decoder_path) and os.path.exists(autoencoder_path):
-        logging.debug("Loading models")
-        encoder: Model = models.load_model(encoder_path)
-        decoder: Model = models.load_model(decoder_path)
-        autoencoder: Model = models.load_model(autoencoder_path)
-    else:
-        logging.debug("Making models")
-        encoder, decoder, autoencoder = make_model(train_data_set, latent_dimensions, image_size, channels, epochs, batch_size)
-        encoder.save(encoder_path)
-        decoder.save(decoder_path)
-        autoencoder.save(autoencoder_path)
+        self.train_data_set: tf.data.Dataset = None
+        self._shape = (0, 0, 0)
 
-    return encoder, decoder, autoencoder
+        self.encoder: Model = None
+        self.decoder: Model = None
+        self.autoencoder: Model = None
 
+        self.encoder_path = "saved_models/var_encoder_larger.keras"
+        self.decoder_path = "saved_models/var_decoder_larger.keras"
+        self.autoencoder_path = "saved_models/var_autoencoder_larger.keras"
 
-def make_model(train_data_set: tf.data.Dataset, latent_dimensions: int, image_size: int, channels: int, epochs: int, batch_size: int) -> tuple[Model, Model, Model]:
-    encoder, shape = make_encoder(latent_dimensions, image_size, channels)
-    encoder.summary()
+        self._init_make_model()
 
-    decoder = make_decoder(latent_dimensions, shape)
-    decoder.summary()
+    def _init_make_model(self):
+        self.train_data_set = get_datasets(self.image_size, self.batch_size)
+        self._get_models()
 
-    # the autoencoder stacks the two models
-    vae = VAE(encoder, decoder)
-    vae.compile()
-    vae.fit(train_data_set, epochs=epochs, batch_size=batch_size)
-    vae.summary()
-    return encoder, decoder, vae
+    def _get_models(self):
+        if os.path.exists(self.encoder_path) and os.path.exists(self.decoder_path) and os.path.exists(
+                self.autoencoder_path):
+            logging.debug("Loading models")
+            self.encoder = models.load_model(self.encoder_path)
+            self.decoder = models.load_model(self.decoder_path)
+            self.autoencoder = models.load_model(self.autoencoder_path)
+        else:
+            logging.debug("Making models")
+            self._make_model()
 
+    def _make_model(self):
+        self._make_encoder()
+        self.encoder.summary()
 
-def preprocess(images: np.array) -> np.array:
-    images = images.astype("float32") / 255.0  # 0-1 range
-    images = np.pad(images, ((0, 0), (2, 2), (2, 2)), constant_values=0.0)  # add 2 to the left, right, above and bellow
-    images = np.expand_dims(images, -1)
-    return images
+        self._make_decoder()
+        self.decoder.summary()
 
+        # the autoencoder stacks the two models
+        vae = VAE(self.encoder, self.decoder)
+        vae.compile()
+        vae.fit(self.train_data_set, epochs=self.epochs, batch_size=self.batch_size)
+        vae.summary()
+        self.autoencoder = vae
 
-def load_data() -> tuple[np.array, np.array, np.array, np.array]:
-    # imports 28x28 grey pixel images
-    ((x_train, y_train), (x_test, y_test)) = datasets.fashion_mnist.load_data()
-    x_train = preprocess(x_train)
-    x_test = preprocess(x_test)
-    return x_train, y_train, x_test, y_test
+        self.encoder.save(self.encoder_path)
+        self.decoder.save(self.decoder_path)
+        self.autoencoder.save(self.autoencoder_path)
 
+    def _make_encoder(self):
+        """Our encoder uses cov layers as the input is an image. We output to """
+        encoder_input = layers.Input(
+            shape=(self.image_size, self.image_size, self.channels),  # shape of the images we are using
+            name="encoder_input"
+        )
+        # find geometric features
+        x = LeakyConv2D(128, (3, 3), strides=2, activation='relu', padding="same")(encoder_input)
+        x = LeakyConv2D(128, (3, 3), strides=2, activation='relu', padding="same")(x)
+        x = LeakyConv2D(128, (3, 3), strides=2, activation='relu', padding="same")(x)
+        x = LeakyConv2D(128, (3, 3), strides=2, activation='relu', padding="same")(x)
 
-def make_encoder(latent_dimensions: int, image_size: int, channels: int) -> tuple[Model, np.array]:
-    """Our encoder uses cov layers as the input is an image. We output to """
-    encoder_input = layers.Input(
-        shape=(image_size, image_size, channels),  # shape of the images we are using
-        name="encoder_input"
-    )
-    # find geometric features
-    x = LeakyConv2D(128, (3, 3), strides=2, activation='relu', padding="same")(encoder_input)
-    x = LeakyConv2D(128, (3, 3), strides=2, activation='relu', padding="same")(x)
-    x = LeakyConv2D(128, (3, 3), strides=2, activation='relu', padding="same")(x)
-    x = LeakyConv2D(128, (3, 3), strides=2, activation='relu', padding="same")(x)
+        # we need this for the decoder to know how many nodes we go back to from the latent space
+        self._shape = x.shape[1:]
 
-    # we need this for the decoder to know how many nodes we go back to from the latent space
-    shape = x.shape[1:]
+        x = layers.Flatten()(x)
 
-    x = layers.Flatten()(x)
+        # to the distribution
+        z_mean = layers.Dense(self.latent_dimensions, name='z_mean')(x)
+        z_log_var = layers.Dense(self.latent_dimensions, name='z_log_var')(x)
 
-    # to the distribution
-    z_mean = layers.Dense(latent_dimensions, name='z_mean')(x)
-    z_log_var = layers.Dense(latent_dimensions, name='z_log_var')(x)
+        z = Sampling()([z_mean, z_log_var])
 
-    z = Sampling()([z_mean, z_log_var])
+        # the model will output the mean, log_var and the drawn point
+        self.encoder = Model(encoder_input, [z_mean, z_log_var, z], name="encoder")
 
-    # the model will output the mean, log_var and the drawn point
-    model = Model(encoder_input, [z_mean, z_log_var, z], name="encoder")
+    def _make_decoder(self):
+        decoder_input = layers.Input(
+            shape=(self.latent_dimensions,),
+            name="decoder_input"
+        )
 
-    return model, shape
+        # allow for a layer to interact directly with the input to make enough data to make an image
+        x = LeakyDense(np.prod(self._shape))(decoder_input)
+        x = layers.Reshape(self._shape)(x)
 
+        # invert layers from encoder
+        x = LeakyConv2DTranspose(128, (3, 3), strides=2, activation='relu', padding="same")(x)
+        x = LeakyConv2DTranspose(128, (3, 3), strides=2, activation='relu', padding="same")(x)
+        x = LeakyConv2DTranspose(128, (3, 3), strides=2, activation='relu', padding="same")(x)
+        x = LeakyConv2DTranspose(128, (3, 3), strides=2, activation='relu', padding="same")(x)
+        # at this point is a 32 x 32 array
 
-def make_decoder(latent_dimensions: int, shape: tuple[int, int, int]) -> Model:
-    decoder_input = layers.Input(
-        shape=(latent_dimensions,),
-        name="decoder_input"
-    )
+        # remove artifacts, Conv2DTranspose layers are known for producing artifacts like checkerboard patterns, especially when upsampling.
+        decoder_output = layers.Conv2D(self.channels, (3, 3), strides=1,
+                                       activation='sigmoid',  # normalises the output values to [0,1]
+                                       padding="same", name="decorator_output")(x)
 
-    # allow for a layer to interact directly with the input to make enough data to make an image
-    x = LeakyDense(np.prod(shape))(decoder_input)
-    x = layers.Reshape(shape)(x)
-
-    # invert layers from encoder
-    x = LeakyConv2DTranspose(128, (3, 3), strides=2, activation='relu', padding="same")(x)
-    x = LeakyConv2DTranspose(128, (3, 3), strides=2, activation='relu', padding="same")(x)
-    x = LeakyConv2DTranspose(128, (3, 3), strides=2, activation='relu', padding="same")(x)
-    x = LeakyConv2DTranspose(128, (3, 3), strides=2, activation='relu', padding="same")(x)
-    # at this point is a 32 x 32 array
-
-    # remove artifacts, Conv2DTranspose layers are known for producing artifacts like checkerboard patterns, especially when upsampling.
-
-    decoder_output = layers.Conv2D(shape[-1], (3, 3), strides=1,
-                                   activation='sigmoid',  # normalises the output values to [0,1]
-                                   padding="same", name="decorator_output")(x)
-
-    return Model(decoder_input, decoder_output)
-
-
-def train_autoencoder(autoencoder: Model, x_train: np.array, x_test: np.array) -> Model:
-    # binary_crossentropy leads to asymmetric penalisation, which will push the pixel value towards 0.5.
-    # this leads to blurry images but smoother edges
-    optimizer = optimizers.Adam(learning_rate=0.0005)
-    autoencoder.compile(optimizer=optimizer, loss="binary_crossentropy")
-
-    autoencoder.fit(
-        x_train,
-        x_train,  # as the output aims to be the same as the input!
-        epochs=5,
-        batch_size=100,
-        shuffle=True,
-        validation_data=(x_test, x_test)
-    )
-
-    return autoencoder
+        self.decoder = Model(decoder_input, decoder_output)
 
 
 if __name__ == "__main__":
