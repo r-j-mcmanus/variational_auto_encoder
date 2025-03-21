@@ -42,26 +42,33 @@ class VAE(Model):
 
         return z_mean, z_log_var, reconstruction
 
+    def _find_losses(self, data):
+        # run the model against the data
+        z_mean, z_log_var, reconstruction = self(data)
+
+        # for the reconstruction we use binary cross entropy as ...
+        # we use the weight beta for this loss as ...
+        reconstruction_loss = tf.reduce_mean(
+            self.beta * losses.binary_crossentropy(data, reconstruction, axis=(1, 2, 3))
+        )
+
+        # for the distribution we use kl_loss, which is a measure of difference in distributions, below is the
+        # closed form for two normal distributions
+        kl_loss = tf.reduce_mean(
+            tf.reduce_sum(
+                -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.math.exp(z_log_var)),
+                axis=1
+            )
+        )
+
+        total_loss = reconstruction_loss + kl_loss
+
+        return total_loss, reconstruction_loss, kl_loss
+
     def train_step(self, data):
+        """Step run during training."""
         with tf.GradientTape() as tape:
-            # run the model against the data
-            z_mean, z_log_var, reconstruction = self(data)
-
-            # for the reconstruction we use binary cross entropy as ...
-            # we use the weight beta for this loss as ...
-            reconstruction_loss = tf.reduce_mean(
-                self.beta * losses.binary_crossentropy(data, reconstruction, axis=(1, 2, 3))
-            )
-
-            # for the distribution we use kl_loss, which is a measure of difference in distributions, below is the
-            # closed form for two normal distributions
-            kl_loss = tf.reduce_mean(
-                tf.reduce_sum(
-                    -0.5 * (1 + z_log_var - tf.square(z_mean) - tf.math.exp(z_log_var))
-                )
-            )
-
-            total_loss = reconstruction_loss + kl_loss
+            total_loss, reconstruction_loss, kl_loss = self._find_losses(data)
 
         grads = tape.gradient(total_loss, self.trainable_weights)
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
@@ -71,6 +78,18 @@ class VAE(Model):
         self.kl_loss_tracker.update_state(kl_loss)
 
         return {m.name: m.result() for m in self.metrics}
+
+    def test_set(self, data):
+        """Step run during validation."""
+        if isinstance(data, tuple):
+            data = data[0]
+
+        total_loss, reconstruction_loss, kl_loss = self._find_losses(data)
+        return {
+            "loss": total_loss,
+            "reconstruction_loss": reconstruction_loss,
+            "kl_loss": kl_loss,
+        }
 
     def get_config(self):
         """This is needed as encoder and decorder are passed to the init, so we need to save their values"""

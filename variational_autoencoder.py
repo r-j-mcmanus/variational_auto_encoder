@@ -2,7 +2,7 @@ import logging
 
 import numpy as np
 from keras import datasets, Model
-from keras import layers, models
+from keras import layers, models, optimizers
 import os
 
 import graphs
@@ -55,9 +55,9 @@ def get_models(latent_dimensions) -> tuple[Model, Model, Model]:
 
     if os.path.exists(encoder_path) and os.path.exists(decoder_path) and os.path.exists(autoencoder_path):
         logging.debug("Loading models")
-        encoder = models.load_model(encoder_path)
-        decoder = models.load_model(decoder_path)
-        autoencoder = models.load_model(autoencoder_path)
+        encoder: Model = models.load_model(encoder_path)
+        decoder: Model = models.load_model(decoder_path)
+        autoencoder: Model = models.load_model(autoencoder_path)
     else:
         logging.debug("Making models")
         encoder, decoder, autoencoder = make_model(latent_dimensions)
@@ -156,7 +156,8 @@ def make_decoder(latent_dimensions: int, shape: tuple[int, int, int]) -> Model:
 def train_autoencoder(autoencoder: Model, x_train: np.array, x_test: np.array) -> Model:
     # binary_crossentropy leads to asymmetric penalisation, which will push the pixel value towards 0.5.
     # this leads to blurry images but smoother edges
-    autoencoder.compile(optimizer="adam", loss="binary_crossentropy")
+    optimizer = optimizers.Adam(learning_rate=0.0005)
+    autoencoder.compile(optimizer=optimizer, loss="binary_crossentropy")
 
     autoencoder.fit(
         x_train,
